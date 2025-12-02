@@ -1,20 +1,16 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from pydantic import BaseModel
-import requests, time
+import requests
 from typing import Dict, List
 
 app = FastAPI()
 
 # -------------------------
-# 🔐 Your API Key
+# 🔐 Gemini API Key (Free)
 # -------------------------
-OPENAI_API_KEY = "YOUR_API_KEY_HERE"
+GEMINI_API_KEY = "AIzaSyCDQ6oI6O7wK3RuLFDiGV0BZZ5kd4z6vx4"
 
-
-# -------------------------
-# 📌 In-Memory Conversation Store
-# (Keeps messages per user)
-# -------------------------
+# Conversation memory per user
 conversations: Dict[str, List[Dict[str, str]]] = {}
 
 
@@ -27,27 +23,28 @@ class RequestBody(BaseModel):
 
 
 # -------------------------
-# 📌 ChatGPT Helper Function
+# 📌 Gemini Text Generation Function
 # -------------------------
-def chatgpt_reply(messages: List[Dict[str, str]]) -> str:
-    url = "https://api.openai.com/v1/chat/completions"
+def ask_gemini(messages: List[Dict[str, str]]) -> str:
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
 
-    headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
-        "Content-Type": "application/json"
-    }
+    # Prepare text prompt for Gemini
+    full_prompt = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
 
     payload = {
-        "model": "gpt-4o-mini",
-        "messages": messages
+        "contents": [
+            {"parts": [{"text": full_prompt}]}
+        ]
     }
 
-    res = requests.post(url, headers=headers, json=payload).json()
-    return res["choices"][0]["message"]["content"]
+    res = requests.post(url, json=payload).json()
+
+    reply = res["candidates"][0]["content"]["parts"][0]["text"]
+    return reply
 
 
 # -------------------------
-# 📌 Main AI Endpoint
+# 📌 Main Endpoint
 # -------------------------
 @app.post("/ask")
 def ask_ai(body: RequestBody):
@@ -55,35 +52,29 @@ def ask_ai(body: RequestBody):
     user = body.user_id
     msg  = body.message.strip()
 
-    # 1️⃣ Create session if new
     if user not in conversations:
         conversations[user] = [
-            {"role": "system", "content": "آپ ہمیشہ اردو میں جواب دیں گے۔ بات چیت دوستانہ ہو۔"}
+            {"role": "system", "content": "آپ ہمیشہ سادہ، واضح اور دوستانہ اردو میں جواب دیں۔"}
         ]
 
-    # 2️⃣ Add user message
+    # Add user message
     conversations[user].append({"role": "user", "content": msg})
 
     try:
-        # 3️⃣ Get reply
-        reply = chatgpt_reply(conversations[user])
+        reply = ask_gemini(conversations[user])
+    except:
+        reply = "معذرت، مجھے جواب نہیں مل سکا۔"
 
-    except Exception as e:
-        reply = "معذرت، سرور سے جواب موصول نہیں ہوسکا۔"
-
-    # 4️⃣ Add assistant reply to memory
+    # Save assistant reply
     conversations[user].append({"role": "assistant", "content": reply})
 
-    # 5️⃣ Limit memory (avoid long chat history)
+    # Keep memory light
     if len(conversations[user]) > 20:
         conversations[user] = conversations[user][-20:]
 
     return {"reply": reply}
 
 
-# -------------------------
-# 📌 Health Check
-# -------------------------
 @app.get("/")
 def home():
-    return {"status": "running", "model": "gpt-4o-mini"}
+    return {"status": "running", "model": "gemini-1.5-flash"}
